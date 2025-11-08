@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Polish Match — 10 слов</title>
+  <style>
+    :root{--bg:#ffffff;--muted:#6b7280;--scale:0.85}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial;background:var(--bg);color:#111}
+    header{padding:14px 16px;border-bottom:1px solid #e5e7eb;display:flex;gap:10px;align-items:center;justify-content:space-between}
+    h1{font-size:18px;margin:0}
+    .wrap{max-width:1100px;margin:0 auto;padding:16px;transform:scale(var(--scale));transform-origin:top center}
+
+    .cols{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px}
+    .col{border:2px solid #e5e7eb;border-radius:16px;padding:14px;min-height:420px}
+    .col h3{margin:0 0 10px 0;font-size:14px;color:#374151}
+
+    .tile{position:relative;display:flex;align-items:center;height:56px;user-select:none;padding:0 44px 0 12px;border-radius:14px;color:#fff;font-weight:700;font-size:20px;text-align:left;margin:10px 6px;cursor:grab;box-shadow:0 6px 0 #0000001a;transition:transform .05s ease;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .tile:active{cursor:grabbing;transform:scale(.98)}
+    .c1{background:linear-gradient(#5bb8ff,#2c80d0)}
+    .c2{background:linear-gradient(#ff6b6b,#c53a3a)}
+    .c3{background:linear-gradient(#ffb454,#d8821b)}
+    .c4{background:linear-gradient(#53c57a,#2a8b4b)}
+    .c5{background:linear-gradient(#a78bfa,#6d28d9)}
+    .c6{background:linear-gradient(#f472b6,#be185d)}
+    .c7{background:linear-gradient(#60a5fa,#2563eb)}
+    .c8{background:linear-gradient(#f59e0b,#b45309)}
+
+    .prompt{position:relative;display:flex;align-items:center;height:56px;padding:0 44px 0 48px;border-radius:14px;background:#f3f4f6;color:#0f172a;font-weight:700;font-size:20px;text-align:left;margin:10px 6px;border:2px solid #e5e7eb;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .slot{height:56px;line-height:56px;margin:10px 6px;border:2px dashed #d1d5db;border-radius:14px;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-weight:600}
+    .slot.over{border-color:#60a5fa;background:#eef2ff}
+    .slot.filled{border-style:solid}
+    .slot.ok{border-color:#22c55e;background:#ecfdf5}
+    .slot.bad{animation:shake .2s linear 2;border-color:#ef4444;background:#fef2f2}
+    @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+
+    .controls{display:flex;gap:8px;align-items:center}
+    button{padding:10px 14px;border-radius:12px;border:1px solid #e5e7eb;background:#f8fafc;cursor:pointer}
+    button:hover{background:#eef2f7}
+    .footer{margin-top:12px;color:var(--muted);font-size:12px}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Polish Match — 3 колонки</h1>
+    <div class="controls">
+      <button id="newRound">Новый раунд (10)</button>
+      <span id="status" style="color:#6b7280"></span>
+    </div>
+  </header>
+  <div class="wrap">
+    <div class="cols">
+      <div class="col" id="colA">
+        <h3>1) Слова (PL⇄RU, вперемешку)</h3>
+        <div id="prompts"></div>
+      </div>
+      <div class="col" id="colB">
+        <h3>2) Перетащи сюда правильный перевод</h3>
+        <div id="slots"></div>
+      </div>
+      <div class="col" id="colC">
+        <h3>3) Переводы (в разброс)</h3>
+        <div id="choices" style="min-height:400px"></div>
+      </div>
+    </div>
+    <div class="footer">Слов осталось в словаре: <span id="footCount">…</span></div>
+  </div>
+
+<script>
+// ===== Утилиты / состояние
+const $=(s,e=document)=>e.querySelector(s); const $$=(s,e=document)=>Array.from(e.querySelectorAll(s));
+const rnd=n=>Math.floor(Math.random()*n); const shuffle=a=>{for(let i=a.length-1;i>0;i--){const j=rnd(i+1);[a[i],a[j]]=[a[j],a[i]]}return a};
+const LS_KEY='plmatch_learned_v2';
+const loadLearned=()=>{ try{ return new Set(JSON.parse(localStorage.getItem(LS_KEY)||'[]')); }catch{ return new Set(); } };
+const saveLearned=set=>{ try{ localStorage.setItem(LS_KEY, JSON.stringify(Array.from(set))); }catch{} };
+let LEARNED = loadLearned();
+
+// ===== БАЗОВЫЙ СЛОВАРЬ (~220)
+const WORDS=[
+  // служебные/частицы/союзы/наречия
+  {pl:'i',ru:'и'},{pl:'a',ru:'а'},{pl:'oraz',ru:'а также'},{pl:'albo',ru:'или'},{pl:'lub',ru:'или'},{pl:'lecz',ru:'но'},{pl:'że',ru:'что'},{pl:'żeby',ru:'чтобы'},{pl:'więc',ru:'значит, поэтому'},{pl:'ponieważ',ru:'потому что'},
+  {pl:'chociaż',ru:'хотя'},{pl:'gdy',ru:'когда'},{pl:'gdyż',ru:'ибо'},{pl:'jeśli',ru:'если'},{pl:'jeżeli',ru:'если'},{pl:'bo',ru:'потому что'},{pl:'ani',ru:'ни'},{pl:'czy',ru:'ли/или'},{pl:'tymczasem',ru:'тем временем'},{pl:'dlatego',ru:'поэтому'},
+  {pl:'tak',ru:'так/да'},{pl:'nie',ru:'нет/не'},{pl:'już',ru:'уже'},{pl:'jeszcze',ru:'ещё'},{pl:'teraz',ru:'сейчас'},{pl:'wtedy',ru:'тогда'},{pl:'zawsze',ru:'всегда'},{pl:'nigdy',ru:'никогда'},{pl:'często',ru:'часто'},{pl:'rzadko',ru:'редко'},
+  {pl:'dobrze',ru:'хорошо'},{pl:'źle',ru:'плохо'},{pl:'bardzo',ru:'очень'},{pl:'bardziej',ru:'больше'},{pl:'mniej',ru:'меньше'},{pl:'dużo',ru:'много'},{pl:'mało',ru:'мало'},{pl:'tutaj',ru:'здесь'},{pl:'tam',ru:'там'},{pl:'stąd',ru:'отсюда'},
+  {pl:'gdzie',ru:'где'},{pl:'kiedy',ru:'когда'},{pl:'dlaczego',ru:'почему'},{pl:'jak',ru:'как'},{pl:'po co',ru:'зачем'},{pl:'razem',ru:'вместе'},{pl:'później',ru:'позже'},{pl:'wcześniej',ru:'раньше'},{pl:'zaraz',ru:'скоро'},{pl:'natychmiast',ru:'немедленно'},
+  {pl:'szybko',ru:'быстро'},{pl:'powoli',ru:'медленно'},
+  // предлоги
+  {pl:'w',ru:'в'},{pl:'na',ru:'на'},{pl:'do',ru:'к/в'},{pl:'z',ru:'с/из'},{pl:'ze',ru:'с/из'},{pl:'od',ru:'от'},{pl:'u',ru:'у'},{pl:'o',ru:'о'},{pl:'po',ru:'по/после'},{pl:'bez',ru:'без'},
+  {pl:'dla',ru:'для'},{pl:'przez',ru:'через'},{pl:'nad',ru:'над'},{pl:'pod',ru:'под'},{pl:'przed',ru:'перед'},{pl:'za',ru:'за'},{pl:'między',ru:'между'},{pl:'około',ru:'около'},{pl:'wokół',ru:'вокруг'},{pl:'podczas',ru:'во время'},
+  {pl:'przeciw',ru:'против'},{pl:'według',ru:'согласно'},{pl:'oprócz',ru:'кроме'},
+  // местоимения / указательные / вопросительные
+  {pl:'ja',ru:'я'},{pl:'ty',ru:'ты'},{pl:'on',ru:'он'},{pl:'ona',ru:'она'},{pl:'ono',ru:'оно'},{pl:'my',ru:'мы'},{pl:'wy',ru:'вы'},{pl:'oni',ru:'они (муж./смеш.)'},{pl:'one',ru:'они (жен.)'},
+  {pl:'mój',ru:'мой'},{pl:'twój',ru:'твой'},{pl:'jego',ru:'его'},{pl:'jej',ru:'её'},{pl:'nasz',ru:'наш'},{pl:'wasz',ru:'ваш'},{pl:'ich',ru:'их'},
+  {pl:'ten',ru:'этот'},{pl:'ta',ru:'эта'},{pl:'to',ru:'это'},{pl:'tamten',ru:'тот'},{pl:'taki',ru:'такой'},{pl:'który',ru:'который'},{pl:'jaki',ru:'какой'},
+  {pl:'kto',ru:'кто'},{pl:'co',ru:'что'},{pl:'nikt',ru:'никто'},{pl:'nic',ru:'ничего'},{pl:'ktoś',ru:'кто-то'},{pl:'coś',ru:'что-то'},
+  // числительные 1–10
+  {pl:'jeden',ru:'один'},{pl:'dwa',ru:'два'},{pl:'trzy',ru:'три'},{pl:'cztery',ru:'четыре'},{pl:'pięć',ru:'пять'},{pl:'sześć',ru:'шесть'},{pl:'siedem',ru:'семь'},{pl:'osiem',ru:'восемь'},{pl:'dziewięć',ru:'девять'},{pl:'dziesięć',ru:'десять'},
+  // глаголы базовые
+  {pl:'mieć',ru:'иметь'},{pl:'być',ru:'быть'},{pl:'robić',ru:'делать'},{pl:'mówić',ru:'говорить'},{pl:'wiedzieć',ru:'знать'},
+  {pl:'widzieć',ru:'видеть'},{pl:'chcieć',ru:'хотеть'},{pl:'iść',ru:'идти'},{pl:'dać',ru:'дать'},{pl:'brać',ru:'брать'},
+  {pl:'jeść',ru:'есть (пищу)'},{pl:'pić',ru:'пить'},{pl:'kupować',ru:'покупать'},{pl:'sprzedawać',ru:'продавать'},{pl:'czytać',ru:'читать'},
+  {pl:'pisać',ru:'писать'},{pl:'uczyć się',ru:'учиться'},{pl:'rozumieć',ru:'понимать'},{pl:'otwierać',ru:'открывать'},{pl:'zamykać',ru:'закрывать'},
+  {pl:'zaczynać',ru:'начинать'},{pl:'kończyć',ru:'заканчивать'},{pl:'pracować',ru:'работать'},{pl:'odpoczywać',ru:'отдыхать'},{pl:'spać',ru:'спать'},
+  {pl:'biegać',ru:'бегать'},{pl:'chodzić',ru:'ходить'},{pl:'jechać',ru:'ехать'},{pl:'lubić',ru:'любить (нравиться)'},{pl:'kochać',ru:'любить (сильно)'},
+  {pl:'myśleć',ru:'думать'},{pl:'pamiętać',ru:'помнить'},{pl:'zapominać',ru:'забывать'},{pl:'szukać',ru:'искать'},{pl:'znajdować',ru:'находить'},
+  {pl:'grać',ru:'играть'},{pl:'oglądać',ru:'смотреть'},{pl:'słuchać',ru:'слушать'},{pl:'pytać',ru:'спрашивать'},{pl:'odpowiadać',ru:'отвечать'},
+  {pl:'pomagać',ru:'помогать'},{pl:'potrzebować',ru:'нуждаться'},{pl:'czuć',ru:'чувствовать'},{pl:'wybierać',ru:'выбирать'},{pl:'zmieniać',ru:'менять'},
+  {pl:'trzymać',ru:'держать'},{pl:'nosić',ru:'носить'},{pl:'sprzątać',ru:'убирать'},{pl:'gotować',ru:'готовить'},{pl:'płacić',ru:'платить'},
+  {pl:'płakać',ru:'плакать'},{pl:'śmiać się',ru:'смеяться'},{pl:'bać się',ru:'бояться'},{pl:'prosić',ru:'просить'},{pl:'dziękować',ru:'благодарить'},
+  {pl:'spotkać',ru:'встретить'},{pl:'rozmawiać',ru:'разговаривать'},{pl:'wychodzić',ru:'выходить'},{pl:'wchodzić',ru:'входить'},
+  // существительные (быт/места/еда)
+  {pl:'dzień',ru:'день'},{pl:'noc',ru:'ночь'},{pl:'rano',ru:'утро'},{pl:'wieczór',ru:'вечер'},{pl:'dom',ru:'дом'},
+  {pl:'mieszkanie',ru:'квартира'},{pl:'pokój',ru:'комната'},{pl:'kuchnia',ru:'кухня'},{pl:'łazienka',ru:'ванная'},{pl:'szkoła',ru:'школа'},
+  {pl:'praca',ru:'работа'},{pl:'firma',ru:'компания'},{pl:'miasto',ru:'город'},{pl:'kraj',ru:'страна'},{pl:'ulica',ru:'улица'},
+  {pl:'sklep',ru:'магазин'},{pl:'bank',ru:'банк'},{pl:'restauracja',ru:'ресторан'},{pl:'szpital',ru:'больница'},{pl:'autobus',ru:'автобус'},
+  {pl:'pociąg',ru:'поезд'},{pl:'samochód',ru:'автомобиль'},{pl:'rower',ru:'велосипед'},{pl:'telefon',ru:'телефон'},{pl:'komputer',ru:'компьютер'},
+  {pl:'książka',ru:'книга'},{pl:'gazeta',ru:'газета'},{pl:'stół',ru:'стол'},{pl:'krzesło',ru:'стул'},{pl:'łóżko',ru:'кровать'},
+  {pl:'okno',ru:'окно'},{pl:'drzwi',ru:'дверь'},{pl:'woda',ru:'вода'},{pl:'chleb',ru:'хлеб'},{pl:'mleko',ru:'молоко'},
+  {pl:'kawa',ru:'кофе'},{pl:'herbata',ru:'чай'},{pl:'zupa',ru:'суп'},{pl:'mięso',ru:'мясо'},{pl:'ryba',ru:'рыба'},
+  {pl:'owoc',ru:'фрукт'},{pl:'warzywo',ru:'овощ'},{pl:'jabłko',ru:'яблоко'},{pl:'banan',ru:'банан'},{pl:'pomidor',ru:'помидор'},
+  {pl:'ogórek',ru:'огурец'},{pl:'ziemniak',ru:'картофель'},{pl:'marchew',ru:'морковь'},{pl:'cebula',ru:'лук'},{pl:'cukier',ru:'сахар'},
+  {pl:'sól',ru:'соль'},{pl:'pies',ru:'собака'},{pl:'kot',ru:'кот'},{pl:'ptak',ru:'птица'},{pl:'las',ru:'лес'},
+  {pl:'morze',ru:'море'},{pl:'góra',ru:'гора'},{pl:'jezioro',ru:'озеро'},{pl:'droga',ru:'дорога'},{pl:'czas',ru:'время'},
+  {pl:'ręka',ru:'рука'},{pl:'głowa',ru:'голова'},{pl:'oko',ru:'глаз'},
+  // прилагательные + цвета
+  {pl:'nowy',ru:'новый'},{pl:'stary',ru:'старый'},{pl:'dobry',ru:'хороший'},{pl:'zły',ru:'плохой'},{pl:'duży',ru:'большой'},
+  {pl:'mały',ru:'маленький'},{pl:'szybki',ru:'быстрый'},{pl:'wolny',ru:'медленный'},{pl:'łatwy',ru:'лёгкий'},{pl:'trudny',ru:'трудный'},
+  {pl:'drogi',ru:'дорогой'},{pl:'tani',ru:'дешёвый'},{pl:'ciepły',ru:'тёплый'},{pl:'zimny',ru:'холодный'},{pl:'piękny',ru:'красивый'},
+  {pl:'brzydki',ru:'некрасивый'},{pl:'ważny',ru:'важный'},{pl:'biały',ru:'белый'},{pl:'czarny',ru:'чёрный'},{pl:'czerwony',ru:'красный'},
+  {pl:'niebieski',ru:'синий/голубой'},{pl:'zielony',ru:'зелёный'},{pl:'żółty',ru:'жёлтый'},
+  // дни/время
+  {pl:'dziś',ru:'сегодня'},{pl:'jutro',ru:'завтра'},{pl:'wczoraj',ru:'вчера'},{pl:'godzina',ru:'час'},{pl:'tydzień',ru:'неделя'},
+  {pl:'miesiąc',ru:'месяц'},{pl:'rok',ru:'год'},{pl:'poniedziałek',ru:'понедельник'},{pl:'wtorek',ru:'вторник'},{pl:'środa',ru:'среда'},
+  {pl:'czwartek',ru:'четверг'},{pl:'piątek',ru:'пятница'},{pl:'sobota',ru:'суббота'},{pl:'niedziela',ru:'воскресенье'}
+];
+
+// ===== ДОПОЛНИТЕЛЬНЫЕ ПАКЕТЫ (добиваем до ~400)
+const EXTRA=[
+  // месяцы/сезоны/погода/цвета/формы
+  {pl:'styczeń',ru:'январь'},{pl:'luty',ru:'февраль'},{pl:'marzec',ru:'март'},{pl:'kwiecień',ru:'апрель'},{pl:'maj',ru:'май'},{pl:'czerwiec',ru:'июнь'},{pl:'lipiec',ru:'июль'},{pl:'sierpień',ru:'август'},{pl:'wrzesień',ru:'сентябрь'},{pl:'październik',ru:'октябрь'},{pl:'listopad',ru:'ноябрь'},{pl:'grudzień',ru:'декабрь'},
+  {pl:'wiosna',ru:'весна'},{pl:'lato',ru:'лето'},{pl:'jesień',ru:'осень'},{pl:'zima',ru:'зима'},{pl:'pogoda',ru:'погода'},{pl:'deszcz',ru:'дождь'},{pl:'śnieg',ru:'снег'},{pl:'wiatr',ru:'ветер'},{pl:'słońce',ru:'солнце'},
+  {pl:'brązowy',ru:'коричневый'},{pl:'szary',ru:'серый'},{pl:'różowy',ru:'розовый'},{pl:'pomarańczowy',ru:'оранжевый'},{pl:'okrągły',ru:'круглый'},{pl:'kwadratowy',ru:'квадратный'},{pl:'trójkątny',ru:'треугольный'},
+  // одежда
+  {pl:'koszula',ru:'рубашка'},{pl:'spodnie',ru:'штаны'},{pl:'sukienka',ru:'платье'},{pl:'buty',ru:'обувь'},{pl:'kurtka',ru:'куртка'},{pl:'płaszcz',ru:'пальто'},{pl:'sweter',ru:'свитер'},{pl:'skarpetki',ru:'носки'},{pl:'czapka',ru:'шапка'},{pl:'rękawiczki',ru:'перчатки'},
+  // семья/люди/профессии
+  {pl:'matka',ru:'мать'},{pl:'ojciec',ru:'отец'},{pl:'syn',ru:'сын'},{pl:'córka',ru:'дочь'},{pl:'brat',ru:'брат'},{pl:'siostra',ru:'сестра'},{pl:'mąż',ru:'муж'},{pl:'żona',ru:'жена'},
+  {pl:'lekarz',ru:'врач'},{pl:'pielęgniarka',ru:'медсестра'},{pl:'nauczyciel',ru:'учитель'},{pl:'uczeń',ru:'ученик'},{pl:'kierowca',ru:'водитель'},{pl:'sprzedawca',ru:'продавец'},{pl:'kelner',ru:'официант'},{pl:'programista',ru:'программист'},{pl:'szef',ru:'шеф/начальник'},
+  // дом/предметы
+  {pl:'lodówka',ru:'холодильник'},{pl:'piekarnik',ru:'духовка'},{pl:'kuchenka',ru:'плита'},{pl:'zmywarka',ru:'посудомойка'},{pl:'pralka',ru:'стиральная машина'},{pl:'telewizor',ru:'телевизор'},{pl:'pilot',ru:'пульт'},{pl:'żarówka',ru:'лампочка'},{pl:'gniazdko',ru:'розетка'},{pl:'przedłużacz',ru:'удлинитель'},
+  {pl:'talerz',ru:'тарелка'},{pl:'kubek',ru:'кружка'},{pl:'szklanka',ru:'стакан'},{pl:'widelec',ru:'вилка'},{pl:'nóż',ru:'нож'},{pl:'łyżka',ru:'ложка'},
+  // транспорт/путешествия
+  {pl:'lotnisko',ru:'аэропорт'},{pl:'bilet',ru:'билет'},{pl:'paszport',ru:'паспорт'},{pl:'walizka',ru:'чемодан'},{pl:'odprawa',ru:'регистрация'},{pl:'odlot',ru:'вылет'},{pl:'przylot',ru:'прилёт'},{pl:'peron',ru:'платформа'},{pl:'przystanek',ru:'остановка'},
+  // еда(+)
+  {pl:'ser',ru:'сыр'},{pl:'masło',ru:'масло'},{pl:'jajko',ru:'яйцо'},{pl:'szynka',ru:'ветчина'},{pl:'kurczak',ru:'курица'},{pl:'wołowina',ru:'говядина'},{pl:'wieprzowina',ru:'свинина'},{pl:'makaron',ru:'макароны'},{pl:'ryż',ru:'рис'},{pl:'kasza',ru:'крупа'},
+  {pl:'ciasto',ru:'пирог'},{pl:'cukierki',ru:'конфеты'},{pl:'lody',ru:'мороженое'},{pl:'sok',ru:'сок'},{pl:'napój',ru:'напиток'},{pl:'piwo',ru:'пиво'},{pl:'wino',ru:'вино'},
+  // тело
+  {pl:'usta',ru:'губы'},{pl:'zęby',ru:'зубы'},{pl:'nos',ru:'нос'},{pl:'ucho',ru:'ухо'},{pl:'włosy',ru:'волосы'},{pl:'plecy',ru:'спина'},{pl:'noga',ru:'нога'},{pl:'stopa',ru:'стопа'},{pl:'kolano',ru:'колено'},{pl:'brzuch',ru:'живот'},
+  // прилагательные(+)
+  {pl:'wysoki',ru:'высокий'},{pl:'niski',ru:'низкий'},{pl:'długi',ru:'длинный'},{pl:'krótki',ru:'короткий'},{pl:'szeroki',ru:'широкий'},{pl:'wąski',ru:'узкий'},{pl:'czysty',ru:'чистый'},{pl:'brudny',ru:'грязный'},{pl:'głośny',ru:'громкий'},{pl:'cichy',ru:'тихий'},
+  // глаголы(+)
+  {pl:'pływać',ru:'плавать'},{pl:'tańczyć',ru:'танцевать'},{pl:'śpiewać',ru:'петь'},{pl:'malować',ru:'рисовать/красить'},{pl:'fotografować',ru:'фотографировать'},{pl:'podróżować',ru:'путешествовать'},{pl:'zamawiać',ru:'заказывать'},{pl:'mieszkać',ru:'жить (проживать)'},{pl:'wynajmować',ru:'снимать (жильё)'},{pl:'używać',ru:'использовать'},{pl:'włączyć',ru:'включить'},{pl:'wyłączyć',ru:'выключить'},
+  // разное
+  {pl:'ważne',ru:'важно'},{pl:'prawda',ru:'правда'},{pl:'kłamstwo',ru:'ложь'},{pl:'błąd',ru:'ошибка'},{pl:'pytanie',ru:'вопрос'},{pl:'odpowiedź',ru:'ответ'},{pl:'wejście',ru:'вход'},{pl:'wyjście',ru:'выход'},{pl:'otwarte',ru:'открыто'},{pl:'zamknięte',ru:'закрыто'}
+];
+
+WORDS.push(...EXTRA);
+
+// ===== Вспомогательные функции для словаря
+const keyOf=p=>`${p.pl}|${p.ru}`;
+const availableWords=()=>WORDS.filter(p=>!LEARNED.has(keyOf(p)));
+
+function updateFooterCount(){ const total=WORDS.length; const left=availableWords().length; const el=$('#footCount'); if(el) el.textContent=`${left} из ${total}`; }
+
+// ===== Генерация раунда
+function makeRound(){
+  const avail=availableWords();
+  if(avail.length<10){ $('#status').textContent=`Осталось слов: ${avail.length}`; }
+  const pool=shuffle([...avail]).slice(0,10);
+  const firstFive=pool.slice(0,5).map(p=>({show:'pl',pair:p}));
+  const secondFive=pool.slice(5).map(p=>({show:'ru',pair:p}));
+  const mix=shuffle([...firstFive,...secondFive]);
+
+  const prompts=$('#prompts'); prompts.innerHTML='';
+  const slots=$('#slots'); slots.innerHTML='';
+  const choices=$('#choices'); choices.innerHTML='';
+
+  // левая колонка
+  mix.forEach((item,idx)=>{
+    const isPL=item.show==='pl';
+    const text=isPL?item.pair.pl:item.pair.ru;
+    const p=document.createElement('div'); p.className='prompt'; p.dataset.answer=isPL?item.pair.ru:item.pair.pl; p.dataset.row=idx; p.dataset.key=keyOf(item.pair); p.textContent=text;
+    // TTS справа
+    const btn=document.createElement('button'); btn.title='Озвучить'; btn.textContent='🔈'; Object.assign(btn.style,{position:'absolute',right:'10px',top:'50%',transform:'translateY(-50%)',border:'1px solid #e5e7eb',background:'#fff',borderRadius:'10px',padding:'6px 10px',lineHeight:'1',height:'32px'});
+    if(isPL){ btn.addEventListener('click',()=>speakPL(item.pair.pl)); } else { btn.style.visibility='hidden'; btn.tabIndex=-1; }
+    p.appendChild(btn);
+    // галка слева (появляется после прохождения раунда)
+    const mark=document.createElement('button'); mark.title='Пометить как выученное'; mark.textContent='✅'; Object.assign(mark.style,{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',border:'1px solid #22c55e66',background:'#22c55e22',borderRadius:'10px',padding:'6px 10px',lineHeight:'1',height:'32px',display:'none'});
+    mark.addEventListener('click',()=>{ LEARNED.add(p.dataset.key); saveLearned(LEARNED); p.style.opacity='.35'; mark.disabled=true; updateFooterCount(); });
+    p.appendChild(mark);
+
+    prompts.appendChild(p);
+
+    const s=document.createElement('div'); s.className='slot'; s.dataset.row=idx; slots.appendChild(s);
+  });
+
+  // правая колонка
+  const tiles=mix.map(it=>({ value: it.show==='pl'?it.pair.ru:it.pair.pl, isPL: it.show==='ru' }));
+  const colors=['c1','c2','c3','c4','c5','c6','c7','c8'];
+  shuffle(tiles).forEach((t,i)=>{
+    const el=document.createElement('div'); el.className='tile '+colors[i%colors.length]; el.draggable=true; el.dataset.value=t.value; el.textContent=t.value;
+    const b=document.createElement('button'); b.textContent='🔈'; Object.assign(b.style,{position:'absolute',right:'10px',top:'50%',transform:'translateY(-50%)',border:'1px solid #ffffff66',background:'#ffffff22',borderRadius:'10px',padding:'6px 10px',lineHeight:'1',height:'32px'});
+    if(t.isPL){ b.addEventListener('click',(e)=>{ e.stopPropagation(); speakPL(t.value); }); } else { b.style.visibility='hidden'; b.tabIndex=-1; }
+    el.appendChild(b);
+    choices.appendChild(el);
+  });
+
+  alignFix(); dndInit(); updateStatus(); updateFooterCount();
+}
+
+// не допускать совпадений «правильный ответ уже напротив»
+function alignFix(){
+  const vals=$$('#choices .tile').map(x=>x.dataset.value);
+  const answers=$$('#prompts .prompt').map(x=>x.dataset.answer);
+  for(let i=0;i<Math.min(vals.length,answers.length);i++){
+    if(vals[i]===answers[i]){ const j=(i+1)%vals.length; const a=$('#choices .tile:nth-child('+(i+1)+')'); const b=$('#choices .tile:nth-child('+(j+1)+')'); if(a&&b) a.parentNode.insertBefore(b,a); }
+  }
+}
+
+function dndInit(){
+  let drag=null;
+  $('#choices').addEventListener('dragstart',e=>{ const t=e.target.closest('.tile'); if(!t) return; drag=t; e.dataTransfer.setData('text/plain',t.dataset.value); });
+  $$('#slots .slot').forEach(slot=>{
+    slot.addEventListener('dragover',e=>{ e.preventDefault(); slot.classList.add('over'); });
+    slot.addEventListener('dragleave',()=>slot.classList.remove('over'));
+    slot.addEventListener('drop',e=>{ e.preventDefault(); slot.classList.remove('over'); if(!drag) return; const value=drag.dataset.value; const row=slot.dataset.row; const need=$(`#prompts .prompt[data-row="${row}"]`).dataset.answer; if(value===need){ slot.classList.remove('bad'); slot.classList.add('filled','ok'); slot.textContent=value; drag.remove(); } else { slot.classList.add('bad'); setTimeout(()=>slot.classList.remove('bad'),400); } updateStatus(); });
+  });
+}
+
+function updateStatus(){ const done=$$('#slots .slot.ok').length; $('#status').textContent=`Верно: ${done}/10`; toggleMarkButtons(done===10); }
+function toggleMarkButtons(show){ $$('#prompts .prompt').forEach(p=>{ const b=p.querySelector('button'); /* first is TTS */ const mark=p.querySelectorAll('button')[1]; if(mark) mark.style.display = show ? 'inline-block' : 'none'; }); }
+
+// ===== TTS
+function speakPL(text){ try{ const u=new SpeechSynthesisUtterance(text); u.lang='pl-PL'; u.rate=1.0; speechSynthesis.cancel(); speechSynthesis.speak(u);}catch(e){} }
+
+// ===== Старт
+$('#newRound').addEventListener('click',makeRound); makeRound();
+</script>
+</body>
+</html>
